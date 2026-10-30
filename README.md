@@ -56,3 +56,4 @@ A minimal, offline-first Bible app for Android with no ads, no account, no track
    ```bash
    npm run android
    ```
+
