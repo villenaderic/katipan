@@ -1,0 +1,80 @@
+{
+  "expo": {
+    "name": "Katipan",
+    "slug": "katipan",
+    "scheme": "katipan",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "userInterfaceStyle": "automatic",
+    "jsEngine": "hermes",
+    "platforms": ["android"],
+    "splash": {
+      "image": "./assets/images/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FAF8F4"
+    },
+    "android": {
+      "package": "ph.katipan.app",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#FAF8F4"
+      },
+      "permissions": [
+        "REQUEST_INSTALL_PACKAGES",
+        "POST_NOTIFICATIONS",
+        "RECEIVE_BOOT_COMPLETED"
+      ],
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "allowBackup": false
+    },
+    "plugins": [
+      "expo-router",
+      "expo-localization",
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/Literata-Regular.ttf",
+            "./assets/fonts/Literata-Italic.ttf",
+            "./assets/fonts/Literata-Bold.ttf"
+          ]
+        }
+      ],
+      [
+        "expo-sqlite",
+        { "enableFTS": true, "useSQLCipher": false }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#8A5A2B"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 24,
+            "enableProguardInReleaseBuild": true,
+            "enableShrinkResourcesInReleaseBuild": true,
+            "useLegacyPackaging": true
+          }
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "manifestUrl": "https://github.com/YOUR-USER/katipan/releases/latest/download/manifest.json"
+    }
+  }
+}
