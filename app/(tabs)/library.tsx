@@ -587,9 +587,9 @@ export default function LibraryScreen() {
                   }}
                   style={styles.retry}
                 />
-              ) : null}
+              ) : undefined}
             </View>
-          ) : null
+          ) : undefined
         }
       />
 

@@ -79,7 +79,7 @@ export function ThemeProvider({
 
   return (
     <ThemeContext.Provider value={value}>
-      <StatusBar style={theme.isDark ? 'light' : 'dark'} backgroundColor="transparent" />
+      <StatusBar style={theme.isDark ? 'light' : 'dark'} />
       {children}
     </ThemeContext.Provider>
   );

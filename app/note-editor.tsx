@@ -200,7 +200,7 @@ export default function NoteEditorScreen() {
   const dirty = state === 'ready' && (body !== savedBody || tagsText !== savedTags);
 
   useEffect(() => {
-    return navigation.addListener('beforeRemove', (event) => {
+    return (navigation as any).addListener('beforeRemove', (event: any) => {
       if (!dirty || leaving.current) return;
       event.preventDefault();
       Alert.alert(t('noteEditor.discardTitle'), t('noteEditor.discardBody'), [
@@ -210,7 +210,9 @@ export default function NoteEditorScreen() {
           style: 'destructive',
           onPress: () => {
             leaving.current = true;
-            navigation.dispatch(event.data.action);
+            if (event.data?.action) {
+              navigation.dispatch(event.data.action);
+            }
           },
         },
       ]);

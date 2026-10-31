@@ -420,7 +420,7 @@ export default function SearchScreen() {
             >
               {emptyMessage}
             </Text>
-          ) : null
+          ) : undefined
         }
       />
     </View>

@@ -1,7 +1,7 @@
 import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { InteractionManager, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/ui/Button';
@@ -54,6 +54,11 @@ installNotificationHandler();
 /** Ignore a second tap on the same notification that arrives within this time (cold start delivers it twice). */
 const DUPLICATE_TAP_WINDOW_MS = 3_000;
 
+function runAfterInteractions(callback: () => void): { cancel: () => void } {
+  const timer = setTimeout(callback, 100);
+  return { cancel: () => clearTimeout(timer) };
+}
+
 /* ------------------------------------------------------------------ */
 /* Notification schedule                                               */
 /* ------------------------------------------------------------------ */
@@ -93,7 +98,7 @@ function AppShell() {
   // Keep the next 14 days of verse notifications in step with the settings.
   // Runs on open and whenever the toggle, time, translation or language change.
   useEffect(() => {
-    const task = InteractionManager.runAfterInteractions(() => {
+    const task = runAfterInteractions(() => {
       queueNotificationSync(() =>
         syncDailyVerseNotifications(
           { notificationsEnabled, notificationTime, translation },
@@ -108,7 +113,7 @@ function AppShell() {
   // Keep the background task (update check and reminder refresh) registered
   // only while an update check or a reminder is wanted.
   useEffect(() => {
-    const task = InteractionManager.runAfterInteractions(() => {
+    const task = runAfterInteractions(() => {
       void syncBackgroundTasks();
     });
     return () => task.cancel();
@@ -117,7 +122,7 @@ function AppShell() {
   // Once per start, remove download leftovers and APKs from earlier updates.
   // No installer can be open at launch, and nothing is downloading yet.
   useEffect(() => {
-    const task = InteractionManager.runAfterInteractions(() => {
+    const task = runAfterInteractions(() => {
       tidyDownloads({ apks: true });
     });
     return () => task.cancel();
@@ -128,7 +133,7 @@ function AppShell() {
   // once per start, a moment after the first screen is up.
   useEffect(() => {
     let active = true;
-    const task = InteractionManager.runAfterInteractions(() => {
+    const task = runAfterInteractions(() => {
       void hasUnseenWhatsNew().then((unseen) => {
         if (active && unseen) router.push('/whats-new');
       });

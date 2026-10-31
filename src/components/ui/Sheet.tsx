@@ -110,10 +110,10 @@ export function Sheet({ visible, onClose, title, closeLabel, children }: SheetPr
 
 const styles = StyleSheet.create({
   fill: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   bottom: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: 'flex-end',
     alignItems: 'center',
   },

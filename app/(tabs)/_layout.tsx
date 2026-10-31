@@ -45,8 +45,8 @@ function TabLabel({ title, focused, color }: TabLabelProps) {
 
 /** Builds the render function React Navigation wants for a tab label. */
 function makeLabel(title: string) {
-  return function renderTabLabel({ focused, color }: { focused: boolean; color: string }) {
-    return <TabLabel title={title} focused={focused} color={color} />;
+  return function renderTabLabel({ focused, color }: { focused: boolean; color?: any }) {
+    return <TabLabel title={title} focused={focused} color={typeof color === 'string' ? color : String(color ?? '')} />;
   };
 }
 

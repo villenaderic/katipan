@@ -75,7 +75,7 @@ export async function shareImage(
     throw new Error('Sharing files is not available on this phone.');
   }
 
-  const uri = await captureRef(target, {
+  const uri = await captureRef(target as any, {
     format: 'png',
     quality: IMAGE_QUALITY,
     result: 'tmpfile',
