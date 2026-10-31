@@ -28,9 +28,9 @@ import { formatTimeLabel, formatTimeOfDay, parseTimeOfDay, type TimeOfDay } from
  *    refuses, the toggle stays off and a plain line explains how to allow it.
  *    The schedule itself is kept in step by the root layout whenever these
  *    two settings change, so nothing is scheduled here.
- *  - Appearance, Translations, Updates, About and Privacy: rows that open
- *    their own screens. The Updates row shows a quiet "Update available"
- *    line, never a badge or a number.
+ *  - Appearance, Translations, Updates, Reading plans, Backup, What's new,
+ *    About and Privacy: rows that open their own screens. The Updates row
+ *    shows a quiet "Update available" line, never a badge or a number.
  *
  * Every string comes from i18n.
  */
@@ -71,7 +71,16 @@ export default function MoreScreen() {
   }, []);
 
   const go = useCallback(
-    (path: '/appearance' | '/translations' | '/updates' | '/about'): void => {
+    (
+      path:
+        | '/appearance'
+        | '/translations'
+        | '/updates'
+        | '/plans'
+        | '/backup'
+        | '/whats-new'
+        | '/about',
+    ): void => {
       if (!acceptTap()) return;
       router.push(path);
     },
@@ -209,6 +218,24 @@ export default function MoreScreen() {
           chevron
           onPress={() => go('/updates')}
           accessibilityHint={t('more.openHint')}
+        />
+        <Row
+          title={t('plans.title')}
+          chevron
+          onPress={() => go('/plans')}
+          accessibilityHint={t('more.openHint')}
+        />
+        <Row
+          title={t('backup.title')}
+          chevron
+          onPress={() => go('/backup')}
+          accessibilityHint={t('more.openHint')}
+        />
+        <Row
+          title={t('whatsNew.title')}
+          chevron
+          onPress={() => go('/whats-new')}
+          accessibilityHint={t('whatsNew.moreHint')}
         />
         <Row
           title={t('more.aboutPrivacy')}

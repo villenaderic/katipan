@@ -1,5 +1,5 @@
-import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, ScrollView, StyleSheet, ToastAndroid, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -9,8 +9,10 @@ import {
   type DailyVerseHeroLabels,
 } from '@/components/today/DailyVerseHero';
 import { Divider } from '@/components/ui/Divider';
+import { formatReadings } from '@/constants/plans';
 import { useDailyVerse } from '@/hooks/useDailyVerse';
 import { useI18n } from '@/i18n';
+import { getTodayPlanItem, type TodayPlanItem } from '@/services/planService';
 import { shareText } from '@/services/shareService';
 import { useReaderStore } from '@/store/readerStore';
 import { selectSettings, useSettingsStore } from '@/store/settingsStore';
@@ -23,10 +25,12 @@ import { formatReference, parseVerseId } from '@/utils/reference';
 /**
  * Today: the home screen.
  *
- * One verse, one "Continue reading" line. Nothing else: no feed, no badges,
- * no streak, no prompts. The reading-plan line the design calls for is added
- * when reading plans are built (v1.0); until then there is nothing to show,
- * so nothing is drawn.
+ * One verse, one "Continue reading" line, one reading-plan line. Nothing
+ * else: no feed, no badges, no streak, no prompts.
+ *
+ *  - The plan line shows the next reading of the active plan. With no active
+ *    plan, or a finished one, it is not drawn at all. It never says "behind"
+ *    or "missed" (see planService.ts) and it never shows the streak.
  *
  *  - Two taps from launch to reading: this screen is the first one, and
  *    "Continue reading" opens the last chapter straight away.
@@ -55,6 +59,21 @@ export default function TodayScreen() {
   useEffect(() => {
     void restore();
   }, [restore]);
+
+  // The next reading of the active plan. Re-read every time Today comes back
+  // into view, because the plan screen may have changed it.
+  const [planItem, setPlanItem] = useState<TodayPlanItem | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      void getTodayPlanItem().then((item) => {
+        if (!cancelled) setPlanItem(item);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
 
   const lastTap = useRef(0);
   /** True the first time within the debounce window, false for an accidental repeat. */
@@ -125,6 +144,13 @@ export default function TodayScreen() {
     });
   }, [position, acceptTap, router]);
 
+  const handleOpenPlan = useCallback((): void => {
+    if (!acceptTap()) return;
+    router.push('/plans');
+  }, [acceptTap, router]);
+
+  const planTitle = planItem ? formatReadings(planItem.chapters, uiLanguage) : null;
+
   const continueTitle = position
     ? formatReference({ book: position.book, chapter: position.chapter }, uiLanguage)
     : null;
@@ -150,16 +176,35 @@ export default function TodayScreen() {
         onRetry={retry}
       />
 
-      {continueTitle ? (
+      {continueTitle || (planItem && planTitle) ? (
         <View style={styles.lines}>
           <Divider inset={space.xl} />
-          <ContinueReading
-            eyebrow={t('today.continue')}
-            title={continueTitle}
-            accessibilityHint={t('today.continueHint')}
-            onPress={handleContinue}
-          />
-          <Divider inset={space.xl} />
+          {continueTitle ? (
+            <>
+              <ContinueReading
+                eyebrow={t('today.continue')}
+                title={continueTitle}
+                accessibilityHint={t('today.continueHint')}
+                onPress={handleContinue}
+              />
+              <Divider inset={space.xl} />
+            </>
+          ) : null}
+          {planItem && planTitle ? (
+            <>
+              <ContinueReading
+                eyebrow={t('today.planEyebrow', {
+                  day: planItem.day,
+                  total: planItem.totalDays,
+                })}
+                title={planTitle}
+                detail={t(`plans.${planItem.planId}.name`)}
+                accessibilityHint={t('today.planHint')}
+                onPress={handleOpenPlan}
+              />
+              <Divider inset={space.xl} />
+            </>
+          ) : null}
         </View>
       ) : null}
     </ScrollView>

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { FOLDERS } from '../constants/config';
 import { deletePack } from '../services/bibleService';
+import { tidyDownloads } from '../services/updateService';
 import { useDownloadsStore } from '../store/downloadsStore';
 import { selectSettings, useSettingsStore } from '../store/settingsStore';
 import type { InstalledPack } from '../types';
@@ -18,7 +19,10 @@ import type { InstalledPack } from '../types';
  *                 can quietly suggest freeing space (never a pop-up)
  *
  * Low-storage mode (Section 4) is a setting, not something this hook decides.
- * This hook only reads it and gives screens `removePack` and `clearCache`.
+ * This hook reads it and gives screens `removePack` and `clearCache`. Turning
+ * it on also tidies right away (download leftovers and old APKs), and while it
+ * is on updateService tidies after every download. Large packs are hidden in
+ * the Translation Manager.
  * Screens use `canDelete(pack)` to hide the delete button for bundled packs.
  *
  * It never throws. If the phone will not report a number, that number is 0,
@@ -144,8 +148,13 @@ export function useStorage(): UseStorage {
   const setLowStorageMode = useCallback(
     (on: boolean): void => {
       setSetting('lowStorageMode', on);
+      if (on) {
+        // No installer can be open while this screen is on top, so APKs go too.
+        tidyDownloads({ apks: true });
+        void refresh();
+      }
     },
-    [setSetting],
+    [setSetting, refresh],
   );
 
   const canDelete = useCallback((pack: Pick<InstalledPack, 'bundled'>): boolean => !pack.bundled, []);

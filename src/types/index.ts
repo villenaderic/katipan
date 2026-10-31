@@ -89,6 +89,12 @@ export type UpdateMode = 'auto' | 'manual' | 'off';
 export interface Settings {
   readonly uiLanguage: LangCode;
   readonly translation: string;
+  /**
+   * Parallel view (v1.5): the pack id of the second translation shown beside
+   * or under the main one, or null when parallel view is off. Never the same
+   * as `translation` (the settings store keeps it so).
+   */
+  readonly parallelTranslation: string | null;
   readonly theme: ThemeName;
   readonly fontSize: number;
   readonly lineHeight: number;

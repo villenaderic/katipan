@@ -73,6 +73,7 @@ export const SPACING = [4, 8, 12, 16, 24, 32, 48] as const;
 export const DEFAULT_SETTINGS: Settings = {
   uiLanguage: 'en',
   translation: 'web',
+  parallelTranslation: null,
   theme: 'light',
   fontSize: READER.defaultFont,
   lineHeight: READER.defaultLineHeight,

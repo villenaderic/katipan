@@ -16,6 +16,11 @@ import {
   type NotificationLabels,
   type NotificationTarget,
 } from '@/services/notificationService';
+import { tidyDownloads } from '@/services/updateService';
+import { hasUnseenWhatsNew } from '@/services/whatsNewService';
+// Importing this module is what runs TaskManager.defineTask, at module level, on
+// every start of the JS engine (including a background start with no screen).
+import { syncBackgroundTasks } from '@/tasks/backgroundTasks';
 import { ensureSettingsLoaded, selectSettings, useSettingsStore } from '@/store/settingsStore';
 import { useReaderStore } from '@/store/readerStore';
 import { ThemeProvider, useTheme } from '@/theme/ThemeProvider';
@@ -32,8 +37,9 @@ import { parseVerseId } from '@/utils/reference';
  *     blank screen.
  *  2. Theme. Everything below ThemeProvider follows the saved theme, high
  *     contrast and Lite mode, so a change in Appearance shows at once.
- *  3. Shell. The navigator, the daily-verse notification schedule, and what
- *     happens when a notification is tapped.
+ *  3. Shell. The navigator, the daily-verse notification schedule, the
+ *     background update task, "What's new" after an update, and what happens
+ *     when a notification is tapped.
  *
  * The reading font needs no loading code: the expo-font plugin in app.json
  * embeds the three Literata files into the APK.
@@ -71,7 +77,7 @@ function AppShell() {
   const { colors, animationsEnabled } = useTheme();
   const { t } = useI18n();
   const settings = useSettingsStore(selectSettings);
-  const { notificationsEnabled, notificationTime, translation, uiLanguage } = settings;
+  const { notificationsEnabled, notificationTime, translation, uiLanguage, updateMode } = settings;
 
   const lastTap = useRef<{ key: string; at: number } | null>(null);
 
@@ -98,6 +104,42 @@ function AppShell() {
     });
     return () => task.cancel();
   }, [notificationsEnabled, notificationTime, translation, uiLanguage, notificationLabels]);
+
+  // Keep the background task (update check and reminder refresh) registered
+  // only while an update check or a reminder is wanted.
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      void syncBackgroundTasks();
+    });
+    return () => task.cancel();
+  }, [updateMode, notificationsEnabled]);
+
+  // Once per start, remove download leftovers and APKs from earlier updates.
+  // No installer can be open at launch, and nothing is downloading yet.
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      tidyDownloads({ apks: true });
+    });
+    return () => task.cancel();
+  }, []);
+
+  // After an update, show "What's new" once. A fresh install shows nothing:
+  // hasUnseenWhatsNew() records the version and returns false. The check runs
+  // once per start, a moment after the first screen is up.
+  useEffect(() => {
+    let active = true;
+    const task = InteractionManager.runAfterInteractions(() => {
+      void hasUnseenWhatsNew().then((unseen) => {
+        if (active && unseen) router.push('/whats-new');
+      });
+    });
+    return () => {
+      active = false;
+      task.cancel();
+    };
+    // Only on the first run of the shell: opening the screen marks it as seen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Tapping a notification opens the verse in context. The reader always shows
   // the translation chosen in Settings, so only the reference is used here.
@@ -154,6 +196,9 @@ function AppShell() {
       <Stack.Screen name="books" options={{ title: t('books.title') }} />
       <Stack.Screen name="translations" options={{ title: t('translations.title') }} />
       <Stack.Screen name="updates" options={{ title: t('updates.title') }} />
+      <Stack.Screen name="plans" options={{ title: t('plans.title') }} />
+      <Stack.Screen name="backup" options={{ title: t('backup.title') }} />
+      <Stack.Screen name="whats-new" options={{ title: t('whatsNew.title') }} />
       <Stack.Screen name="note-editor" options={{ title: t('noteEditor.title') }} />
       <Stack.Screen name="appearance" options={{ title: t('appearance.title') }} />
       <Stack.Screen name="about" options={{ title: t('about.title') }} />

@@ -3,6 +3,7 @@ import * as Network from 'expo-network';
 import { APP_VERSION, UPDATES } from '../constants/config';
 import {
   NO_UPDATES,
+  isTaskActive,
   useDownloadsStore,
   type AvailableUpdates,
 } from '../store/downloadsStore';
@@ -12,7 +13,8 @@ import { isOlderThan } from '../utils/date';
 import { isNewerVersion } from '../utils/format';
 import { installPack } from './bibleService';
 import { getDailyVersesVersion, installDailyVerses } from './dailyVerseService';
-import { DownloadError, downloadVerified } from './downloadService';
+import { cleanupOldApks } from './appUpdateService';
+import { DownloadError, clearTemporaryDownloads, downloadVerified } from './downloadService';
 import { fetchVerifiedManifest } from './manifestService';
 
 /**
@@ -133,6 +135,32 @@ async function refreshAvailable(): Promise<void> {
 }
 
 /* ------------------------------------------------------------------ */
+/* Tidying                                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Delete download leftovers: partial or verified-but-unused files in tmp/,
+ * and, when `apks` is true, APKs from earlier app updates.
+ *
+ * Does nothing while any download or install is running, so it can never
+ * pull a file out from under one. Never throws.
+ *
+ * `apks` is false right after a pack install, because an APK may be in use by
+ * the Android installer at that moment. It is true only when the app starts
+ * and when Low-storage mode is switched on, when no installer can be open.
+ */
+export function tidyDownloads(options: { apks: boolean }): void {
+  try {
+    const busy = Object.values(useDownloadsStore.getState().tasks).some(isTaskActive);
+    if (busy) return;
+    clearTemporaryDownloads();
+    if (options.apks) cleanupOldApks();
+  } catch {
+    // Leftovers cost some space and are replaced by the next download.
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Installing                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -176,6 +204,10 @@ async function runInstall(
     // The file was downloaded and verified but could not be installed
     // (not a usable pack, disk problem). The old version is still in place.
     if (key !== null) useDownloadsStore.getState().failTask(key, 'invalid');
+  } finally {
+    // Low-storage mode: do not keep scratch files once a download is over,
+    // whether it worked, failed or was cancelled.
+    if (getSettings().lowStorageMode) tidyDownloads({ apks: false });
   }
 }
 

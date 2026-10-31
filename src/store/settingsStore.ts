@@ -29,6 +29,11 @@ import { snapFontSize, snapLineHeight } from '../utils/format';
  *    in the background. A failed save never undoes what the person sees.
  *  - Every value is validated on the way in AND on the way out of the
  *    database, so the rest of the app can trust the types.
+ *  - Parallel view: `parallelTranslation` is a pack id (parallel view on) or
+ *    null (off), and is never the same as `translation`. Choosing the main
+ *    translation that is currently the second one SWAPS them, so parallel view
+ *    stays on and the person simply reads the other text first. Setting the
+ *    second translation to the main one is refused.
  */
 
 /* ------------------------------------------------------------------ */
@@ -52,6 +57,11 @@ const VALIDATORS: Validators = {
   uiLanguage: oneOf<LangCode>(['en', 'fil']),
   translation: (value) =>
     typeof value === 'string' && isValidPackId(value) ? value : undefined,
+  // null is a real value here (parallel view off), so only a wrong type is rejected.
+  parallelTranslation: (value) => {
+    if (value === null) return null;
+    return typeof value === 'string' && isValidPackId(value) ? value : undefined;
+  },
   theme: oneOf<ThemeName>(THEME_NAMES),
   fontSize: (value) =>
     typeof value === 'number' && Number.isFinite(value) ? snapFontSize(value) : undefined,
@@ -84,6 +94,38 @@ function sanitize<K extends keyof Settings>(key: K, value: unknown): Settings[K]
   return validate(value);
 }
 
+/**
+ * Keep the two translations different. `previous` is the settings before the
+ * change. Returns the settings to use and whether a request for the second
+ * translation had to be refused.
+ */
+function reconcileParallel(
+  previous: Settings,
+  next: Record<string, unknown>,
+): { settings: Settings; refused: boolean } {
+  let refused = false;
+  if (next.parallelTranslation !== null && next.parallelTranslation === next.translation) {
+    if (next.translation !== previous.translation) {
+      // The main translation became the second one: swap.
+      next.parallelTranslation = previous.translation;
+    } else {
+      // The second translation was set to the main one: refuse.
+      next.parallelTranslation = previous.parallelTranslation;
+      refused = true;
+    }
+  }
+  return { settings: next as unknown as Settings, refused };
+}
+
+/** Everything that differs between two settings objects, as [key, value] pairs to save. */
+function changedEntries(before: Settings, after: Settings): [keyof Settings, unknown][] {
+  const entries: [keyof Settings, unknown][] = [];
+  for (const key of SETTING_KEYS) {
+    if (before[key] !== after[key]) entries.push([key, after[key]]);
+  }
+  return entries;
+}
+
 /* ------------------------------------------------------------------ */
 /* First launch                                                        */
 /* ------------------------------------------------------------------ */
@@ -114,6 +156,10 @@ function buildSettings(stored: Record<string, unknown>): { settings: Settings; f
   for (const key of SETTING_KEYS) {
     const value = sanitize(key, stored[key]);
     if (value !== undefined) writable[key] = value;
+  }
+  // A stored pair that agrees (an older version, a hand-edited row) means parallel view off.
+  if (result.parallelTranslation === result.translation) {
+    writable.parallelTranslation = null;
   }
   return { settings: result, fresh: !hasLanguage };
 }
@@ -154,28 +200,34 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setSetting: (key, value) => {
     const clean = sanitize(key, value);
     if (clean === undefined) return false;
-    if (get().settings[key] === clean) return true;
 
-    set((state) => ({ settings: { ...state.settings, [key]: clean } }));
-    persist([[key, clean]]);
-    return true;
+    const current = get().settings;
+    if (current[key] === clean) return true;
+
+    const { settings, refused } = reconcileParallel(current, { ...current, [key]: clean });
+    const entries = changedEntries(current, settings);
+    if (entries.length > 0) {
+      set({ settings });
+      persist(entries);
+    }
+    return !refused;
   },
 
   setSettings: (patch) => {
-    const accepted: [keyof Settings, unknown][] = [];
-    const next: Record<string, unknown> = { ...get().settings };
+    const current = get().settings;
+    const next: Record<string, unknown> = { ...current };
 
     for (const key of SETTING_KEYS) {
       if (!(key in patch)) continue;
       const clean = sanitize(key, patch[key]);
-      if (clean === undefined || next[key] === clean) continue;
-      next[key] = clean;
-      accepted.push([key, clean]);
+      if (clean !== undefined) next[key] = clean;
     }
 
-    if (accepted.length === 0) return;
-    set({ settings: next as unknown as Settings });
-    persist(accepted);
+    const { settings } = reconcileParallel(current, next);
+    const entries = changedEntries(current, settings);
+    if (entries.length === 0) return;
+    set({ settings });
+    persist(entries);
   },
 }));
 

@@ -1,0 +1,98 @@
+# Strings for src/constants/plans.ts, app/plans.tsx and the Today plan line
+
+Paste each block just before the closing `};` of the file.
+Please check the Filipino wording.
+
+## en.ts
+
+```ts
+  'plans.title': 'Reading plans',
+  'plans.intro':
+    'Pick a plan and read at your own pace. There are no deadlines: the next reading is always the next one you have not read.',
+  'plans.days': '{count} days',
+  'plans.startHint': 'Starts this plan',
+  'plans.started': '{plan} started',
+  'plans.bible-year.name': 'The Bible in a year',
+  'plans.bible-year.about': 'Every chapter, from Genesis to Revelation, about 3 a day.',
+  'plans.nt-90.name': 'New Testament in 90 days',
+  'plans.nt-90.about': 'Matthew to Revelation, about 3 chapters a day.',
+  'plans.psalms-proverbs.name': 'Psalms and Proverbs',
+  'plans.psalms-proverbs.about': 'All 150 Psalms and all 31 chapters of Proverbs, about 3 a day.',
+  'plans.progress': '{done} of {total} days read',
+  'plans.streak': 'You have read {count} days in a row.',
+  'plans.nextEyebrow': 'Next reading, day {day}',
+  'plans.openChapterHint': 'Opens this chapter',
+  'plans.markRead': 'Mark as read',
+  'plans.markNotRead': 'Mark as not read',
+  'plans.markedRead': 'Day {day} marked as read',
+  'plans.markedNotRead': 'Day {day} marked as not read',
+  'plans.markedThrough': 'Days 1 to {day} marked as read',
+  'plans.readThroughHere': 'I have read everything up to here',
+  'plans.readThroughHereHint': 'Marks this day and every earlier day as read',
+  'plans.finished': 'You have finished {plan}. Well done.',
+  'plans.allDays': 'All days',
+  'plans.allDaysDone': 'All days, every one read',
+  'plans.dayTitle': 'Day {day}',
+  'plans.dayA11y': 'Day {day}. {readings}. {state}',
+  'plans.dayHint': 'Opens this day',
+  'plans.stateRead': 'Read',
+  'plans.stateNotRead': 'Not read yet',
+  'plans.changePlan': 'Choose another plan',
+  'plans.changePlanHint': 'Stops this plan and keeps your progress',
+  'plans.startOver': 'Start over',
+  'plans.startOverTitle': 'Start this plan over?',
+  'plans.startOverBody':
+    'This clears which days of {plan} you have read, so it begins again at day 1. Your notes and highlights are not touched.',
+  'plans.startOverConfirm': 'Start over',
+  'plans.startedOver': '{plan} is back at day 1',
+  'plans.loadError': 'Your reading plans could not be loaded.',
+  'today.planEyebrow': 'Reading plan, day {day} of {total}',
+  'today.planHint': 'Opens your reading plan',
+```
+
+## fil.ts
+
+```ts
+  'plans.title': 'Mga plano sa pagbasa',
+  'plans.intro':
+    'Pumili ng plano at magbasa sa sarili mong bilis. Walang deadline: ang susunod na babasahin ay laging ang susunod na hindi mo pa nababasa.',
+  'plans.days': '{count} araw',
+  'plans.startHint': 'Sisimulan ang planong ito',
+  'plans.started': 'Nasimulan ang {plan}',
+  'plans.bible-year.name': 'Ang Biblia sa isang taon',
+  'plans.bible-year.about': 'Bawat kabanata, mula Genesis hanggang Apocalipsis, mga 3 isang araw.',
+  'plans.nt-90.name': 'Bagong Tipan sa 90 araw',
+  'plans.nt-90.about': 'Mateo hanggang Apocalipsis, mga 3 kabanata isang araw.',
+  'plans.psalms-proverbs.name': 'Mga Awit at Mga Kawikaan',
+  'plans.psalms-proverbs.about': 'Lahat ng 150 Awit at lahat ng 31 kabanata ng Mga Kawikaan, mga 3 isang araw.',
+  'plans.progress': '{done} sa {total} araw ang nabasa',
+  'plans.streak': '{count} araw ka nang magkakasunod na nagbasa.',
+  'plans.nextEyebrow': 'Susunod na babasahin, araw {day}',
+  'plans.openChapterHint': 'Bubuksan ang kabanatang ito',
+  'plans.markRead': 'Markahang nabasa',
+  'plans.markNotRead': 'Markahang hindi pa nabasa',
+  'plans.markedRead': 'Namarkahang nabasa ang araw {day}',
+  'plans.markedNotRead': 'Namarkahang hindi pa nabasa ang araw {day}',
+  'plans.markedThrough': 'Namarkahang nabasa ang araw 1 hanggang {day}',
+  'plans.readThroughHere': 'Nabasa ko na ang lahat hanggang dito',
+  'plans.readThroughHereHint': 'Imamarka ang araw na ito at ang lahat ng nauna',
+  'plans.finished': 'Natapos mo na ang {plan}. Magaling.',
+  'plans.allDays': 'Lahat ng araw',
+  'plans.allDaysDone': 'Lahat ng araw, nabasa lahat',
+  'plans.dayTitle': 'Araw {day}',
+  'plans.dayA11y': 'Araw {day}. {readings}. {state}',
+  'plans.dayHint': 'Bubuksan ang araw na ito',
+  'plans.stateRead': 'Nabasa na',
+  'plans.stateNotRead': 'Hindi pa nababasa',
+  'plans.changePlan': 'Pumili ng ibang plano',
+  'plans.changePlanHint': 'Ihihinto ang planong ito at mananatili ang iyong progreso',
+  'plans.startOver': 'Magsimulang muli',
+  'plans.startOverTitle': 'Uulitin ang planong ito?',
+  'plans.startOverBody':
+    'Buburahin nito kung aling araw ng {plan} ang nabasa mo, kaya magsisimula ulit sa araw 1. Hindi gagalawin ang iyong mga note at highlight.',
+  'plans.startOverConfirm': 'Magsimulang muli',
+  'plans.startedOver': 'Nasa araw 1 na ulit ang {plan}',
+  'plans.loadError': 'Hindi mai-load ang iyong mga plano sa pagbasa.',
+  'today.planEyebrow': 'Plano sa pagbasa, araw {day} sa {total}',
+  'today.planHint': 'Bubuksan ang iyong plano sa pagbasa',
+```

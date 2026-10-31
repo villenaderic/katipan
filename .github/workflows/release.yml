@@ -1,0 +1,487 @@
+# Katipan release workflow.
+#
+# WHAT IT DOES
+#   Push a version tag (for example v1.0.1) and this builds the signed APKs
+#   (one universal, one for arm64-v8a, one for armeabi-v7a), builds and signs
+#   manifest.json with tools/build-manifest.js, publishes a GitHub Release, and
+#   then downloads what it published and checks it the way the app will.
+#
+# HOW TO RELEASE
+#   1. Raise "version" AND android.versionCode in app.json.
+#   2. Write tools/release-notes.json (see "Release notes" below).
+#   3. Update CHANGELOG.md, commit, push.
+#   4. git tag v1.0.1 && git push origin v1.0.1
+#
+# A manual run from the Actions tab ("Run workflow") is a DRY RUN: it builds and
+# checks everything, keeps the files as a workflow artifact for 7 days, and
+# publishes nothing.
+#
+# SECRETS (Settings > Secrets and variables > Actions)
+#   Secrets:
+#     ANDROID_KEYSTORE_BASE64    the release keystore, base64:  base64 -w0 release.keystore
+#     ANDROID_KEYSTORE_PASSWORD
+#     ANDROID_KEY_ALIAS
+#     ANDROID_KEY_PASSWORD
+#     KATIPAN_SIGNING_KEY        text of tools/keys/manifest-private.pem
+#   Variable (not secret; it is public information):
+#     ANDROID_CERT_SHA256        SHA-256 fingerprint of the release certificate.
+#                                Get it once with:
+#                                keytool -list -v -keystore release.keystore
+#                                The build stops if the keystore does not match it,
+#                                so a wrong or replaced keystore can never ship.
+#
+# RELEASE NOTES
+#   tools/release-notes.json, edited for every release:
+#     { "version": "1.0.1", "en": "What's new...", "fil": "Ano ang bago..." }
+#   "version" must equal app.json, so old notes cannot be reused by mistake.
+#
+# NOT IN THIS FILE
+#   The two Android keys are never printed. The keystore is written to the
+#   runner's temp folder only, and the runner is thrown away afterwards.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '22'
+  JAVA_VERSION: '17'
+  # Only ARM phones are targeted. The universal APK holds both of these.
+  ABIS: 'armeabi-v7a,arm64-v8a'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # all tags, to compare versionCode with the last release
+
+      # ---------------------------------------------------------------
+      # Cheap checks first, so a mistake fails in a minute, not in twenty
+      # ---------------------------------------------------------------
+
+      - name: Read the version
+        id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER=$(node -p "require('./app.json').expo.version")
+          CODE=$(node -p "require('./app.json').expo.android.versionCode")
+          SLUG=$(node -p "require('./app.json').expo.slug")
+          if ! [[ "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::app.json version \"$VER\" is not like 1.0.1"; exit 1
+          fi
+          if ! [[ "$CODE" =~ ^[0-9]+$ ]]; then
+            echo "::error::app.json android.versionCode \"$CODE\" is not a whole number"; exit 1
+          fi
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF_NAME" != "v$VER" ]; then
+            echo "::error::The tag is $GITHUB_REF_NAME but app.json says version $VER. Change one so they match (the tag must be v$VER)."; exit 1
+          fi
+          {
+            echo "version=$VER"
+            echo "code=$CODE"
+            echo "slug=$SLUG"
+            echo "tag=v$VER"
+          } >> "$GITHUB_OUTPUT"
+          echo "Releasing $SLUG $VER (versionCode $CODE)"
+
+      - name: versionCode must be higher than the last release
+        shell: bash
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+          CODE: ${{ steps.ver.outputs.code }}
+        run: |
+          set -euo pipefail
+          PREV=$(git tag --list 'v*' --sort=-v:refname | grep -vx "$TAG" | head -n 1 || true)
+          if [ -z "$PREV" ]; then
+            echo "No earlier release tag. Nothing to compare."; exit 0
+          fi
+          OLD=$(git show "$PREV:app.json" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const c=JSON.parse(s).expo.android.versionCode;console.log(Number.isInteger(c)?c:'')})")
+          if [ -z "$OLD" ]; then
+            echo "::warning::$PREV has no versionCode in app.json. Skipping the comparison."; exit 0
+          fi
+          if [ "$CODE" -le "$OLD" ]; then
+            echo "::error::versionCode $CODE is not higher than $OLD (in $PREV). Android refuses to update to a lower or equal versionCode. Raise android.versionCode in app.json."; exit 1
+          fi
+          echo "versionCode $CODE is higher than $OLD ($PREV). Good."
+
+      - name: Release notes are present and match this version
+        shell: bash
+        env:
+          VER: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          node -e "
+            const fs = require('fs');
+            if (!fs.existsSync('tools/release-notes.json')) { console.error('tools/release-notes.json is missing.'); process.exit(1); }
+            const n = JSON.parse(fs.readFileSync('tools/release-notes.json', 'utf8'));
+            const bad = [];
+            if (n.version !== process.env.VER) bad.push('\"version\" is ' + JSON.stringify(n.version) + ', app.json says ' + process.env.VER);
+            if (typeof n.en !== 'string' || n.en.trim() === '') bad.push('\"en\" is empty');
+            if (typeof n.fil !== 'string' || n.fil.trim() === '') bad.push('\"fil\" is empty');
+            if (bad.length) { console.error('tools/release-notes.json: ' + bad.join('; ') + '.'); process.exit(1); }
+          " || { echo "::error::tools/release-notes.json is missing or out of date (needs version, en, fil)."; exit 1; }
+
+      - name: Files that are added by hand are in place
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for f in \
+            package-lock.json \
+            assets/data/web.db assets/data/adb1905.db assets/data/daily-verses.json \
+            assets/fonts/Literata-Regular.ttf assets/fonts/Literata-Italic.ttf assets/fonts/Literata-Bold.ttf \
+            assets/images/icon.png assets/images/adaptive-icon.png assets/images/splash.png assets/images/notification-icon.png; do
+            if [ ! -f "$f" ]; then echo "::error::Missing $f"; missing=1; fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Add the missing files and commit them. package-lock.json comes from running npm install once and committing the result."; exit 1
+          fi
+
+      - name: Manifest signing key matches the key inside the app
+        shell: bash
+        env:
+          KATIPAN_SIGNING_KEY: ${{ secrets.KATIPAN_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KATIPAN_SIGNING_KEY:-}" ]; then
+            echo "::error::Secret KATIPAN_SIGNING_KEY is not set."; exit 1
+          fi
+          PUB=$(node tools/build-manifest.js public-key)
+          if ! grep -q "MANIFEST_PUBLIC_KEY_HEX = '$PUB'" src/constants/config.ts; then
+            echo "::error::MANIFEST_PUBLIC_KEY_HEX in src/constants/config.ts is not the public key of KATIPAN_SIGNING_KEY ($PUB). An app built like this would refuse every update."; exit 1
+          fi
+          echo "Public key $PUB matches config.ts."
+
+      # ---------------------------------------------------------------
+      # Tools
+      # ---------------------------------------------------------------
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install packages
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      # ---------------------------------------------------------------
+      # The release keystore, and a check that it is THE keystore
+      # ---------------------------------------------------------------
+
+      - name: Prepare the release keystore
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          EXPECTED_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          for name in KEYSTORE_B64 KEYSTORE_PASSWORD KEY_ALIAS EXPECTED_SHA256; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is not set (see the list at the top of release.yml)."; exit 1
+            fi
+          done
+
+          KEYSTORE="$RUNNER_TEMP/release.keystore"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$KEYSTORE"
+          chmod 600 "$KEYSTORE"
+
+          ACTUAL=$(keytool -list -v -keystore "$KEYSTORE" -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" \
+            | sed -n 's/^[[:space:]]*SHA256:[[:space:]]*//p' | head -n 1 | tr -d ':' | tr 'A-F' 'a-f')
+          WANT=$(printf '%s' "$EXPECTED_SHA256" | tr -d ': ' | tr 'A-F' 'a-f')
+
+          if ! [[ "$ACTUAL" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Could not read the certificate from the keystore. Check ANDROID_KEYSTORE_BASE64, the password and the alias."; exit 1
+          fi
+          if [ "$ACTUAL" != "$WANT" ]; then
+            echo "::error::The keystore certificate ($ACTUAL) is not the one in ANDROID_CERT_SHA256 ($WANT). Users could not update to an APK signed with a different key. Stopping."; exit 1
+          fi
+          echo "Keystore certificate matches ANDROID_CERT_SHA256."
+          echo "KEYSTORE=$KEYSTORE" >> "$GITHUB_ENV"
+          echo "CERT_SHA256=$WANT" >> "$GITHUB_ENV"
+
+      # ---------------------------------------------------------------
+      # Build
+      # ---------------------------------------------------------------
+
+      - name: Generate the Android project
+        run: npx expo prebuild --platform android --clean --no-install
+
+      - name: Build the release APK
+        working-directory: android
+        env:
+          GRADLE_OPTS: '-Dorg.gradle.jvmargs=-Xmx4g -Dorg.gradle.daemon=false'
+        run: ./gradlew assembleRelease --no-daemon --stacktrace "-PreactNativeArchitectures=${ABIS}"
+
+      # ---------------------------------------------------------------
+      # Sign with the permanent keystore, then make the per-ABI APKs
+      #
+      # The Gradle build is signed with a throwaway key. Here the APK is
+      # stripped of that signature and signed again with the release keystore
+      # using apksigner, so the release key never enters the Gradle project.
+      # The ABI APKs are the universal APK minus the other ABI's native
+      # libraries (everything else in an APK is shared between ABIs).
+      # ---------------------------------------------------------------
+
+      - name: Sign and split the APKs
+        shell: bash
+        env:
+          VER: ${{ steps.ver.outputs.version }}
+          CODE: ${{ steps.ver.outputs.code }}
+          SLUG: ${{ steps.ver.outputs.slug }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -z "$SDK" ] || [ ! -d "$SDK/build-tools" ]; then
+            echo "::error::The Android SDK build-tools were not found on this runner."; exit 1
+          fi
+          BT="$SDK/build-tools/$(ls "$SDK/build-tools" | sort -V | tail -n 1)"
+          echo "Using build-tools $(basename "$BT")"
+
+          shopt -s nullglob
+          BUILT=(android/app/build/outputs/apk/release/*.apk)
+          if [ "${#BUILT[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one APK in android/app/build/outputs/apk/release/, found ${#BUILT[@]}."; exit 1
+          fi
+
+          WORK="$RUNNER_TEMP/apk-work"
+          OUT="$GITHUB_WORKSPACE/release"
+          rm -rf "$WORK" "$OUT"; mkdir -p "$WORK" "$OUT"
+
+          # Start clean: no old signature, and no ABI that is not on the list.
+          cp "${BUILT[0]}" "$WORK/base.apk"
+          zip -q -d "$WORK/base.apk" 'META-INF/*' || true
+          zip -q -d "$WORK/base.apk" 'lib/x86/*' 'lib/x86_64/*' || true
+
+          make_apk() { # <output name> <ABI folder to remove, or "none">
+            local name="$1" drop="$2" file="$WORK/$1"
+            cp "$WORK/base.apk" "$file.raw"
+            if [ "$drop" != "none" ]; then zip -q -d "$file.raw" "lib/$drop/*"; fi
+            "$BT/zipalign" -f -p 4 "$file.raw" "$file.aligned"
+            "$BT/apksigner" sign \
+              --ks "$KEYSTORE" --ks-key-alias "$KEY_ALIAS" \
+              --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
+              --out "$OUT/$name" "$file.aligned"
+            rm -f "$file.raw" "$file.aligned"
+          }
+
+          make_apk "universal.apk"                     none
+          make_apk "${SLUG}-${VER}-arm64-v8a.apk"      armeabi-v7a
+          make_apk "${SLUG}-${VER}-armeabi-v7a.apk"    arm64-v8a
+
+          # ---- Check every APK before anything is published ----
+          for apk in "$OUT"/*.apk; do
+            echo "== $(basename "$apk") ($(du -h "$apk" | cut -f1))"
+
+            "$BT/apksigner" verify --print-certs "$apk" > "$WORK/certs.txt"
+            GOT=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$WORK/certs.txt" | head -n 1 | tr 'A-F' 'a-f')
+            if [ "$GOT" != "$CERT_SHA256" ]; then
+              echo "::error::$(basename "$apk") is not signed with the release certificate."; exit 1
+            fi
+
+            BADGING=$("$BT/aapt2" dump badging "$apk" | grep -m1 '^package:')
+            if ! grep -q "versionCode='$CODE'" <<< "$BADGING" || ! grep -q "versionName='$VER'" <<< "$BADGING"; then
+              echo "::error::$(basename "$apk") reports [$BADGING], expected versionCode $CODE and versionName $VER."; exit 1
+            fi
+
+            LIBS=$(unzip -Z1 "$apk" | grep -c '^lib/' || true)
+            HAS_ARM64=$(unzip -Z1 "$apk" | grep -c '^lib/arm64-v8a/' || true)
+            HAS_V7A=$(unzip -Z1 "$apk" | grep -c '^lib/armeabi-v7a/' || true)
+            echo "   native libs: $LIBS (arm64-v8a $HAS_ARM64, armeabi-v7a $HAS_V7A)"
+            case "$(basename "$apk")" in
+              universal.apk)     [ "$HAS_ARM64" -gt 0 ] && [ "$HAS_V7A" -gt 0 ] ;;
+              *-arm64-v8a.apk)   [ "$HAS_ARM64" -gt 0 ] && [ "$HAS_V7A" -eq 0 ] ;;
+              *-armeabi-v7a.apk) [ "$HAS_V7A" -gt 0 ] && [ "$HAS_ARM64" -eq 0 ] ;;
+            esac || { echo "::error::$(basename "$apk") has the wrong native libraries."; exit 1; }
+          done
+
+      # ---------------------------------------------------------------
+      # The manifest: checksums and signature
+      # ---------------------------------------------------------------
+
+      - name: Build and sign manifest.json
+        shell: bash
+        env:
+          KATIPAN_SIGNING_KEY: ${{ secrets.KATIPAN_SIGNING_KEY }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          node tools/build-manifest.js build \
+            --base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}" \
+            --apk release/universal.apk \
+            --notes-file tools/release-notes.json \
+            --out-dir release-out
+
+          # The universal APK is now release-out/<slug>-<version>.apk; the other two sit next to it.
+          cp release/*-arm64-v8a.apk release/*-armeabi-v7a.apk release-out/
+          rm -f release-out/.inspect-*
+          ls -l release-out
+
+      # ---------------------------------------------------------------
+      # Dry run: keep the files, publish nothing
+      # ---------------------------------------------------------------
+
+      - name: Keep the files (dry run only)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: katipan-dry-run
+          path: release-out/
+          retention-days: 7
+
+      # ---------------------------------------------------------------
+      # Publish. The release is made as a DRAFT with every file attached and
+      # published last, so nobody sees a manifest before its files exist.
+      # ---------------------------------------------------------------
+
+      - name: Publish the release
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          VER: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          # A re-run may find its own unfinished draft. A published release is never touched.
+          if STATE=$(gh release view "$TAG" --json isDraft --jq '.isDraft' 2>/dev/null); then
+            if [ "$STATE" = "true" ]; then
+              echo "Removing the unfinished draft for $TAG."
+              gh release delete "$TAG" --yes
+            else
+              echo "::error::$TAG is already published. Releases are never overwritten: raise the version and tag again."; exit 1
+            fi
+          fi
+
+          node -e "
+            const n = require('./tools/release-notes.json');
+            const m = require('./release-out/manifest.json');
+            const lines = [
+              '## What\'s new', '', n.en.trim(), '',
+              '## Ano ang bago', '', n.fil.trim(), '',
+              '## Install', '',
+              'Download \`' + require('./app.json').expo.slug + '-' + n.version + '.apk\` (works on every phone), allow \"Install unknown apps\" for your browser when Android asks, then open the file.',
+              'The two other APKs are smaller and only work on phones with that processor type (almost all recent phones are arm64-v8a).', '',
+              '## Checksums (SHA-256)', '',
+              '- universal APK: \`' + m.app.sha256 + '\`',
+              ...m.packs.map(p => '- ' + p.id + ' v' + p.version + ': \`' + p.sha256 + '\`'),
+            ];
+            require('fs').writeFileSync('release-notes.md', lines.join('\n') + '\n');
+          "
+
+          gh release create "$TAG" release-out/* \
+            --draft \
+            --verify-tag \
+            --title "Katipan $VER" \
+            --notes-file release-notes.md
+
+          gh release edit "$TAG" --draft=false --latest
+          echo "Published $TAG."
+
+      # ---------------------------------------------------------------
+      # Check what the world can now download, the way the app will
+      # ---------------------------------------------------------------
+
+      - name: Verify the published release
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          PUB=$(sed -n "s/.*MANIFEST_PUBLIC_KEY_HEX = '\([0-9a-f]\{64\}\)'.*/\1/p" src/constants/config.ts)
+          cat > "$RUNNER_TEMP/verify-published.js" <<'EOF'
+          const crypto = require('node:crypto');
+
+          const [, , repo, tag, publicKeyHex] = process.argv;
+          const base = `https://github.com/${repo}/releases/download/${tag}`;
+          const latest = `https://github.com/${repo}/releases/latest/download`;
+
+          async function get(url, attempts = 6) {
+            let last;
+            for (let i = 1; i <= attempts; i += 1) {
+              try {
+                const response = await fetch(url, { redirect: 'follow', headers: { 'Cache-Control': 'no-cache' } });
+                if (response.ok) return Buffer.from(await response.arrayBuffer());
+                last = new Error(`HTTP ${response.status} for ${url}`);
+              } catch (error) {
+                last = error;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 5000 * i));
+            }
+            throw last;
+          }
+
+          const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
+
+          (async () => {
+            const manifestBytes = await get(`${base}/manifest.json`);
+            const signature = (await get(`${base}/manifest.json.sig`)).toString('utf8').trim();
+
+            // Raw 32-byte Ed25519 key -> the SPKI form Node reads.
+            const spki = Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from(publicKeyHex, 'hex')]);
+            const key = crypto.createPublicKey({ key: spki, format: 'der', type: 'spki' });
+            if (!crypto.verify(null, manifestBytes, key, Buffer.from(signature, 'hex'))) {
+              throw new Error('The published manifest.json does not match its signature.');
+            }
+            console.log('Signature of the published manifest is valid.');
+
+            const manifest = JSON.parse(manifestBytes.toString('utf8'));
+            const files = [
+              ...manifest.packs.map((p) => [p.url, p.sha256]),
+              ...(manifest.dailyVerses ? [[manifest.dailyVerses.url, manifest.dailyVerses.sha256]] : []),
+              ...(manifest.app ? [[manifest.app.apkUrl, manifest.app.sha256]] : []),
+            ];
+            for (const [url, expected] of files) {
+              const actual = sha256(await get(url));
+              if (actual !== expected) throw new Error(`${url} has checksum ${actual}, the manifest says ${expected}.`);
+              console.log(`OK  ${url.slice(url.lastIndexOf('/') + 1)}`);
+            }
+
+            // The app reads the manifest from .../releases/latest/download/. It must be this one.
+            const viaLatest = await get(`${latest}/manifest.json`);
+            if (!viaLatest.equals(manifestBytes)) {
+              throw new Error('releases/latest/download/manifest.json is not this release\'s manifest. Is another release marked Latest?');
+            }
+            console.log('releases/latest/download/manifest.json is this release. Done.');
+          })().catch((error) => {
+            console.error(`::error::${error.message}`);
+            process.exit(1);
+          });
+          EOF
+          node "$RUNNER_TEMP/verify-published.js" "$GITHUB_REPOSITORY" "$TAG" "$PUB"
